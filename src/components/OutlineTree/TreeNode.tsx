@@ -206,16 +206,18 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
                   <Plus size={13} /> {lbl.treeNode.addSiblingMenuItem}
                 </button>
               )}
-              <button
-                role="menuitem"
-                className={styles.dangerItem}
-                onClick={() => {
-                  node.tree.delete(node.id);
-                  setMenuOpen(false);
-                }}
-              >
-                <Trash2 size={13} /> {lbl.treeNode.deleteMenuItem}
-              </button>
+              {!isRoot && (
+                <button
+                  role="menuitem"
+                  className={styles.dangerItem}
+                  onClick={() => {
+                    node.tree.delete(node.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Trash2 size={13} /> {lbl.treeNode.deleteMenuItem}
+                </button>
+              )}
             </div>
           )}
         </div>

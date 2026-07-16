@@ -250,6 +250,10 @@ export const useTreeStore = create<TreeState>((set, get) => ({
   },
 
   deleteNode: (id) => {
+    // Never allow the root/collection node to be removed — it would leave the
+    // tree empty with no way to add units back or recover in the UI.
+    const rootId = get().treeData[0]?.id;
+    if (id === rootId) return;
     set((state) => ({
       treeData: removeNode(state.treeData, id),
       selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId,

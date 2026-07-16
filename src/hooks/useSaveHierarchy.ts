@@ -193,6 +193,11 @@ export function useSaveHierarchy() {
       config.context.contentId ?? config.context.identifier ?? '';
     if (!contentId) return;
 
+    if (treeData.length === 0) {
+      toast.error('Collection is empty. Please reload before saving.');
+      return;
+    }
+
     const channel = config.context.channel ?? '';
     const lastUpdatedBy = config.context.userId ?? config.context.uid ?? '';
 
