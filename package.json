@@ -57,12 +57,21 @@
     "@vitejs/plugin-react": "^4.3.1",
     "sass": "^1.77.6",
     "typescript": "^5.5.3",
-    "vite": "^5.3.4",
-    "vite-plugin-dts": "^3.9.1",
-    "vitest": "^2.0.3"
+    "vite": "^6.4.3",
+    "vite-plugin-dts": "^5.0.3",
+    "vitest": "^3.2.7"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "overrides": {
+    "@microsoft/api-extractor": {
+      "lodash": "^4.18.0",
+      "minimatch": "^3.1.3"
+    },
+    "@microsoft/tsdoc-config": {
+      "ajv": "^6.14.0"
+    }
   }
 }
