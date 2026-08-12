@@ -472,6 +472,8 @@ export function validateLearningPathStructure(
   ([[preLevel, 'Prior Assessment'], [postLevel, 'Outcome Assessment']] as const).forEach(([lvl, label]) => {
     if (!lvl) return;
     const children = lvl.children ?? [];
+    const hasAssessmentCourse = children.some((c) => !!c.metadata?.['isAssessmentCourse']);
+    if (!hasAssessmentCourse) return;
     if (children.length !== 1 || !children[0]?.metadata?.['isAssessmentCourse']) {
       issues.push({ code: 'slotNotPure', nodeId: lvl.id, message: `${label} must contain exactly one question-set-only course.` });
     }
