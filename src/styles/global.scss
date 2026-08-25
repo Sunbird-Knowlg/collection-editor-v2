@@ -13,6 +13,13 @@
   color: var(--sbx-gray-900);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+
+  // Form controls don't inherit font-family from ancestors under the
+  // browser's default UA stylesheet, so without this they fall back to
+  // the platform default (Arial/Times) instead of Rubik.
+  input, textarea, select, button {
+    font-family: inherit;
+  }
 }
 
 // Chip
@@ -76,6 +83,9 @@
 }
 
 // Buttons base
+// Explicit font-family (not just inherited) because Button.tsx also renders
+// via these classes from the two document.body-portaled modals
+// (UnsavedChangesModal, LibraryPreviewPanel), outside .sb-split-builder.
 .sbx-btn {
   display: inline-flex;
   align-items: center;
@@ -83,6 +93,7 @@
   height: 36px;
   border-radius: var(--sbx-r-md);
   padding: 0 18px;
+  font-family: var(--sbx-font);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -136,6 +147,31 @@
   padding: 0 14px;
   font-size: 13px;
   border-radius: var(--sbx-r-sm);
+}
+
+// ── Learning Path only — design's larger/softer buttons & fully-round chips.
+// Scoped under the root .sbx-lp-profile marker (set by CollectionEditor)
+// so Collection/Course keeps the original button/chip sizing above.
+.sbx-lp-profile {
+  .sbx-chip {
+    border-radius: var(--sbx-r-pill);
+  }
+
+  .sbx-btn {
+    height: 42px;
+    border-radius: var(--sbx-r-btn);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+
+  .sbx-btn-primary {
+    box-shadow: var(--sbx-shadow-1);
+  }
+
+  .sbx-btn-ghost {
+    color: var(--sbx-gray-900);
+    border: 1px solid var(--sbx-gray-200);
+  }
 }
 
 // Targeted RTL overrides (dir="ar" sets document.documentElement[dir="rtl"]

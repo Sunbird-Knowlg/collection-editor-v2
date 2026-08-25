@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import type { INode, EditorMode } from '../../types/editor';
 import { useTreeStore } from '../../store/tree.store';
 import { useEditorStore } from '../../store/editor.store';
+import { useUiStore } from '../../store/ui.store';
 import { useIsDraftStatus } from '../../hooks/useContentStatus';
 import { useLabels } from '../../hooks/useLabels';
 import { TreeNode } from './TreeNode';
@@ -12,6 +13,7 @@ import { Button } from '../shared/Button';
 import { CsvUpload } from '../BulkUpload/CsvUpload';
 import { exportFolderCsv } from '../../api/bulkUpload';
 import { readHierarchy } from '../../api/hierarchy';
+import { useAssessmentSlots } from '../../hooks/useAssessmentSlots';
 import styles from './OutlineTree.module.scss';
 
 interface OutlineTreeProps {
@@ -34,24 +36,42 @@ export const OutlineTree: React.FC<OutlineTreeProps> = ({
   const [showCsvUpload, setShowCsvUpload] = useState(false);
   const [csvMode, setCsvMode] = useState<'create' | 'update'>('create');
 
-  const { treeData, selectedNodeId, selectNode, addNode, deleteNode, reorderChildren, moveNode, setTreeData } = useTreeStore();
+  const { treeData, selectedNodeId, selectNode, addNode, deleteNode, getNodeById, reorderChildren, moveNode, setTreeData } = useTreeStore();
+  const openModal = useUiStore(s => s.openModal);
+  const editorProfile = useEditorStore(s => s.editorProfile);
+  const isLearningPath = editorProfile.key === 'learningPath';
   const isEditable = editorMode === 'edit';
   const isDraft = useIsDraftStatus();
   // Adding units/content is only allowed while the collection is in Draft.
   const canAdd = isEditable && isDraft;
+  const addUnitLabel = isLearningPath ? lbl.learningPath.addLevelButton : lbl.outlineTree.addUnitButton;
+  // LP Levels can't contain sub-levels (maxDepth: 1) — the footer's generic
+  // "Add Sub-unit" would only ever error for this profile, so hide it.
+  const showAddSubunit = editorProfile.maxDepth > 1;
   // Mirror Angular: "Create" is only useful when no folders exist yet;
   // "Download/Update" only make sense when folders already exist.
   const hasFolders = (treeData[0]?.children ?? []).some(c => c.isFolder);
+
+  // Pre/post assessment slots (LP profile only) — the tree's delete handler
+  // routes deletes of these Levels through the same confirm as the root
+  // panel's "Assessments" card (AssessmentSlotItem), which is where authors
+  // fill/view/remove them; they stay ordinary Levels at index min/max in the
+  // saved hierarchy.
+  const { pre: preSlot, post: postSlot, deleteSlot } = useAssessmentSlots();
+  const { level: preLevel } = preSlot;
+  const { level: postLevel } = postSlot;
   const contentId = useEditorStore(
     s => s.editorConfig?.context?.contentId ?? s.editorConfig?.context?.identifier ?? '',
   );
 
   // enableBulkUpload from sourcingSettings controls CSV menu visibility.
-  // Default to true when the category definition hasn't loaded yet.
-  const enableBulkUpload = useEditorStore(s => {
+  // Default to true when the category definition hasn't loaded yet. LP never
+  // supports CSV bulk upload regardless of sourcingSettings (profile.features).
+  const sourcingAllowsBulkUpload = useEditorStore(s => {
     const sourcing = s.categoryMeta?.sourcingSettings?.collection as Record<string, unknown> | undefined;
     return sourcing?.enableBulkUpload !== false;
   });
+  const enableBulkUpload = editorProfile.features.csvUpload && sourcingAllowsBulkUpload;
 
   // Measure wrapper height for react-arborist virtualization
   useEffect(() => {
@@ -103,8 +123,55 @@ export const OutlineTree: React.FC<OutlineTreeProps> = ({
   );
 
   const handleDelete = useCallback(
-    ({ ids }: { ids: string[] }) => { ids.forEach((id) => deleteNode(id)); },
-    [deleteNode],
+    ({ ids }: { ids: string[] }) => {
+      if (!isLearningPath) {
+        for (const id of ids) deleteNode(id);
+        return;
+      }
+
+      // ui.store's openModal holds a single pending confirm, not a queue —
+      // calling it once per id here (the old per-id loop) let each
+      // iteration's dialog/onConfirm silently overwrite the previous one's
+      // before React ever rendered it, so only the LAST selected id in a
+      // multi-select ever got confirmed or deleted. A single id keeps the
+      // existing nuanced behavior (the pre/post slot's own policy-aware
+      // confirm, or a Level/course-specific message); 2+ ids collapse into
+      // one combined confirm that deletes everything on accept.
+      if (ids.length === 1) {
+        const id = ids[0];
+        // Deleting the pre-assessment Level via the tree's own delete UI goes
+        // through the same policy-gated confirm as the root panel's
+        // AssessmentSlotItem Remove button.
+        if (preLevel?.id === id) { deleteSlot('pre'); return; }
+        if (postLevel?.id === id) { deleteSlot('post'); return; }
+        const node = getNodeById(id);
+        const message = node?.isFolder
+          ? lbl.learningPath.deleteLevelConfirm.replace('{name}', node.name)
+          : lbl.learningPath.deleteCourseConfirm;
+        openModal('confirmDelete', {
+          message,
+          onConfirm: () => {
+            if (!deleteNode(id)) {
+              toast.error(lbl.learningPath.cannotRemoveLastRegularCourseToast);
+            }
+          },
+        });
+        return;
+      }
+
+      const message = lbl.learningPath.deleteMultipleConfirm.replace('{count}', String(ids.length));
+      openModal('confirmDelete', {
+        message,
+        onConfirm: () => {
+          let blocked = false;
+          for (const id of ids) {
+            if (!deleteNode(id)) blocked = true;
+          }
+          if (blocked) toast.error(lbl.learningPath.cannotRemoveLastRegularCourseToast);
+        },
+      });
+    },
+    [deleteNode, deleteSlot, isLearningPath, preLevel, postLevel, getNodeById, openModal, lbl],
   );
 
   const handleCreate = useCallback(
@@ -175,8 +242,15 @@ export const OutlineTree: React.FC<OutlineTreeProps> = ({
     <div className={styles.container}>
       {/* Header bar */}
       <div className={styles.header}>
+        {isLearningPath && (
+          <span className={styles.sectionLabel}>{lbl.learningPath.pathStructureLabel}</span>
+        )}
+
         <div className={styles.headerActions}>
-          {isEditable && (
+          {/* The dropdown only ever holds CSV bulk-upload actions, which LP
+              never supports (features.csvUpload is always false) — hide the
+              button entirely rather than opening an empty menu. */}
+          {isEditable && enableBulkUpload && (
             <div className={styles.menuWrap} ref={menuRef}>
               <button
                 type="button"
@@ -192,37 +266,33 @@ export const OutlineTree: React.FC<OutlineTreeProps> = ({
 
               {showMenu && (
                 <div className={styles.dropdownMenu} role="menu">
-                  {enableBulkUpload && (
-                    <>
-                      <button
-                        role="menuitem"
-                        type="button"
-                        disabled={hasFolders}
-                        title={hasFolders ? lbl.outlineTree.foldersExistTitle : undefined}
-                        onClick={() => { setShowMenu(false); setCsvMode('create'); setShowCsvUpload(true); }}
-                      >
-                        {lbl.outlineTree.createFoldersCsvButton}
-                      </button>
-                      <button
-                        role="menuitem"
-                        type="button"
-                        disabled={!hasFolders}
-                        title={!hasFolders ? lbl.outlineTree.noFoldersYetTitle : undefined}
-                        onClick={handleDownloadCsv}
-                      >
-                        {lbl.outlineTree.downloadFoldersCsvButton}
-                      </button>
-                      <button
-                        role="menuitem"
-                        type="button"
-                        disabled={!hasFolders}
-                        title={!hasFolders ? lbl.outlineTree.noFoldersYetTitle : undefined}
-                        onClick={() => { setShowMenu(false); setCsvMode('update'); setShowCsvUpload(true); }}
-                      >
-                        {lbl.outlineTree.updateFoldersCsvButton}
-                      </button>
-                    </>
-                  )}
+                  <button
+                    role="menuitem"
+                    type="button"
+                    disabled={hasFolders}
+                    title={hasFolders ? lbl.outlineTree.foldersExistTitle : undefined}
+                    onClick={() => { setShowMenu(false); setCsvMode('create'); setShowCsvUpload(true); }}
+                  >
+                    {lbl.outlineTree.createFoldersCsvButton}
+                  </button>
+                  <button
+                    role="menuitem"
+                    type="button"
+                    disabled={!hasFolders}
+                    title={!hasFolders ? lbl.outlineTree.noFoldersYetTitle : undefined}
+                    onClick={handleDownloadCsv}
+                  >
+                    {lbl.outlineTree.downloadFoldersCsvButton}
+                  </button>
+                  <button
+                    role="menuitem"
+                    type="button"
+                    disabled={!hasFolders}
+                    title={!hasFolders ? lbl.outlineTree.noFoldersYetTitle : undefined}
+                    onClick={() => { setShowMenu(false); setCsvMode('update'); setShowCsvUpload(true); }}
+                  >
+                    {lbl.outlineTree.updateFoldersCsvButton}
+                  </button>
                 </div>
               )}
             </div>
@@ -275,16 +345,18 @@ export const OutlineTree: React.FC<OutlineTreeProps> = ({
             onClick={handleAddUnit}
             disabled={!canAdd}
           >
-            <Plus size={14} /> {lbl.outlineTree.addUnitButton}
+            <Plus size={14} /> {addUnitLabel}
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleAddSubunit}
-            disabled={!canAdd || !selectedNodeId}
-          >
-            <FolderPlus size={14} /> {lbl.outlineTree.addSubunitButton}
-          </Button>
+          {showAddSubunit && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleAddSubunit}
+              disabled={!canAdd || !selectedNodeId}
+            >
+              <FolderPlus size={14} /> {lbl.outlineTree.addSubunitButton}
+            </Button>
+          )}
         </div>
       )}
 

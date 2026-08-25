@@ -9,6 +9,7 @@ import { useFramework } from '../../hooks/useFramework';
 import { useFrameworkOptions } from '../../hooks/useFrameworkOptions';
 import { useChannelData } from '../../hooks/useChannelData';
 import { useUserFullName } from '../../hooks/useUserFullName';
+import { useSkillCategory } from '../../hooks/useSkillCategory';
 import { useLabels } from '../../hooks/useLabels';
 import { useFieldPrepare, SECTION_DISPLAY } from './hooks/useFieldPrepare';
 import type { IPrepareContext } from './hooks/useFieldPrepare';
@@ -26,6 +27,7 @@ import { KeywordSuggestField } from './fields/KeywordSuggestField';
 import { NestedSelectField } from './fields/NestedSelectField';
 import { LicenseSelectField } from './fields/LicenseSelectField';
 import { DialcodeInputField } from './fields/DialcodeInputField';
+import { PolicyCardField } from './fields/PolicyCardField';
 import styles from './SparkMetaForm.module.scss';
 
 interface SparkMetaFormProps {
@@ -44,6 +46,8 @@ export const SparkMetaForm: React.FC<SparkMetaFormProps> = ({
 }) => {
   const lbl = useLabels();
   const config = useEditorStore(s => s.editorConfig);
+  const editorProfile = useEditorStore(s => s.editorProfile);
+  const isLearningPath = editorProfile.key === 'learningPath';
   const rootFormConfig = useEditorStore(s => s.rootFormConfig);
   const unitFormConfig = useEditorStore(s => s.unitFormConfig);
   const categoryMeta = useEditorStore(s => s.categoryMeta);
@@ -113,6 +117,7 @@ export const SparkMetaForm: React.FC<SparkMetaFormProps> = ({
     collectionAdditionalCategories,
     contentAdditionalCategories,
     childCount,
+    profile: editorProfile,
   };
 
   // Use category-definition API fields if available, fall back to static config
@@ -160,6 +165,13 @@ export const SparkMetaForm: React.FC<SparkMetaFormProps> = ({
   nodeTitleRef.current = (effectiveMeta.name as string) ?? '';
   const editorModeRef = useRef(editorMode);
   editorModeRef.current = editorMode;
+  // The CURRENT (pre-switch) resolved skill-category code — captured every
+  // render so the mount-only watch effect below reads the OLD framework's
+  // code at the moment a NEW Curriculum is picked, before setContentFramework
+  // triggers the re-render that would resolve it to the new one.
+  const skillCategory = useSkillCategory();
+  const skillCategoryCodeRef = useRef(skillCategory?.code);
+  skillCategoryCodeRef.current = skillCategory?.code;
   const REVIEW_MODES = ['review', 'read', 'sourcingreview', 'orgreview'];
 
   // Report initial validity on mount — mirrors Angular's setTimeout(() => emitStatus(), 0).
@@ -224,6 +236,30 @@ export const SparkMetaForm: React.FC<SparkMetaFormProps> = ({
         if (changedField === 'framework' && isRoot && typeof value === 'string' && value) {
           const editorState = useEditorStore.getState();
           editorState.setContentFramework(value, editorState.contentTargetFWIds);
+          // LP: courses tagged under another curriculum carry skills the new
+          // scope can't read — drop them (incl. an emptied pre/post slot) and
+          // tell the author what happened.
+          if (isLearningPath) {
+            const removed = useTreeStore.getState().pruneCoursesByFramework(value);
+            if (removed > 0) {
+              toast(
+                lbl.learningPath.coursesRemovedFrameworkChangeToast.replace('{count}', String(removed)),
+                { icon: <Info size={16} />, duration: 5000 },
+              );
+            }
+            // A Level's selected skills are term names from the framework
+            // being left behind — meaningless (or worse, coincidentally
+            // colliding with an unrelated term) under the new one, so they
+            // must not linger as orphaned metadata a later switch back
+            // could resurface.
+            const clearedLevels = useTreeStore.getState().clearLevelSkills(skillCategoryCodeRef.current);
+            if (clearedLevels > 0) {
+              toast(
+                lbl.learningPath.levelSkillsResetFrameworkChangeToast.replace('{count}', String(clearedLevels)),
+                { icon: <Info size={16} />, duration: 5000 },
+              );
+            }
+          }
         }
         // transformFieldPatch omits UI-only keys (allowECM/setPeriod → null) and
         // maps levels→outcomeDeclaration, instances→{label}.
@@ -295,45 +331,59 @@ export const SparkMetaForm: React.FC<SparkMetaFormProps> = ({
 
   const renderField = (field: typeof tabFields[number]) => {
     const commonProps = {
-      key: field.code,
       name: field.code,
       label: field.label,
       required: field.required,
       disabled: field.editable === false,
     };
+    // LP root's consumption-policy field gets the design's 3-card selector
+    // instead of a plain dropdown, regardless of the category definition's
+    // declared inputType (select) — same special-casing pattern as dialcodes.
+    // Wrapped to span the full width of its 2-col section grid (design: the
+    // 3 cards sit in one row, never squeezed into a half-width cell).
+    // Gated to LP specifically — a future/unrelated category schema could
+    // reuse the code 'policy' for something else entirely (e.g. a licensing
+    // policy) and shouldn't get LP's hardcoded 3-card options.
+    if (isLearningPath && field.code === 'policy') {
+      return (
+        <div key={field.code} className={styles.fullWidthField}>
+          <PolicyCardField {...commonProps} />
+        </div>
+      );
+    }
     switch (field.inputType) {
       case 'textarea':
-        return <TextField {...commonProps} multiline maxLength={field.maxLength} />;
+        return <TextField key={field.code} {...commonProps} multiline maxLength={field.maxLength} />;
       case 'select':
-        return <SelectField {...commonProps} options={field.options ?? []} />;
+        return <SelectField key={field.code} {...commonProps} options={field.options ?? []} />;
       case 'multiselect':
-        return <MultiSelectField {...commonProps} options={field.options ?? []} />;
+        return <MultiSelectField key={field.code} {...commonProps} options={field.options ?? []} />;
       case 'chips':
-        return <ChipGroupField {...commonProps} />;
+        return <ChipGroupField key={field.code} {...commonProps} />;
       case 'radio':
-        return <RadioField {...commonProps} options={field.options ?? []} />;
+        return <RadioField key={field.code} {...commonProps} options={field.options ?? []} />;
       case 'appIcon':
-        return <AppIconField {...commonProps} nodeId={selectedNodeId ?? ''} />;
+        return <AppIconField key={field.code} {...commonProps} nodeId={selectedNodeId ?? ''} />;
       case 'datepicker':
       case 'datetime':
-        return <DateTimeField {...commonProps} />;
+        return <DateTimeField key={field.code} {...commonProps} />;
       case 'keywords':
       case 'tagsinput':
-        return <KeywordSuggestField {...commonProps} />;
+        return <KeywordSuggestField key={field.code} {...commonProps} />;
       case 'nestedselect':
-        return <NestedSelectField {...commonProps} levels={field.levels ?? []} />;
+        return <NestedSelectField key={field.code} {...commonProps} levels={field.levels ?? []} />;
       case 'license':
-        return <LicenseSelectField {...commonProps} />;
+        return <LicenseSelectField key={field.code} {...commonProps} />;
       case 'dialcode':
-        return <DialcodeInputField {...commonProps} />;
+        return <DialcodeInputField key={field.code} {...commonProps} />;
       default:
-        return <TextField {...commonProps} maxLength={field.maxLength} />;
+        return <TextField key={field.code} {...commonProps} maxLength={field.maxLength} />;
     }
   };
 
   return (
     <FormProvider {...form}>
-      <div className={styles.form}>
+      <div className={[styles.form, isLearningPath ? styles.formLp : ''].filter(Boolean).join(' ')}>
         {sectionGroups.map((group, idx) => {
           const display = group.section ? SECTION_DISPLAY[group.section] : undefined;
           if (display) {
@@ -345,7 +395,7 @@ export const SparkMetaForm: React.FC<SparkMetaFormProps> = ({
           }
           // Fields with no known section: render flat inside an unstyled wrapper
           return (
-            <div key={idx} className={styles.ungrouped}>
+            <div key={idx} className={[styles.ungrouped, isLearningPath ? styles.ungroupedLp : ''].filter(Boolean).join(' ')}>
               {group.fields.map(renderField)}
             </div>
           );

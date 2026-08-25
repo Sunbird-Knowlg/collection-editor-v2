@@ -20,6 +20,9 @@ import { useEditorStore } from '../../store/editor.store';
 import { useSaveHierarchy } from '../../hooks/useSaveHierarchy';
 import { useToolbarActions } from '../../hooks/useToolbarActions';
 import { useLabels } from '../../hooks/useLabels';
+import { useSkillScopeNarrowingAlert } from '../../hooks/useSkillScopeNarrowingAlert';
+import { useSkillsCoveredSync } from '../../hooks/useSkillsCoveredSync';
+import { hasExplicitCurriculum, isAssessmentLevel } from '../../utils/lpStructure';
 import toast from 'react-hot-toast';
 import styles from './SplitBuilderShell.module.scss';
 
@@ -42,8 +45,18 @@ export const SplitBuilderShell: React.FC<SplitBuilderShellProps> = ({
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
 
-  const { addResource, treeData } = useTreeStore();
+  // Mounted once for the whole session (unlike UnitContentList, which
+  // mounts/unmounts per node selection) so it can track "have I already
+  // alerted for this narrowing" across navigation.
+  useSkillScopeNarrowingAlert();
+  // Keeps the LP root's own skill-category field mirroring the derived
+  // "Skills covered" union — same always-mounted placement, for the same
+  // reason.
+  useSkillsCoveredSync();
+
+  const { addResource, treeData, treeCache } = useTreeStore();
   const setFormStatus = useEditorStore((s) => s.setFormStatus);
+  const isLearningPath = useEditorStore((s) => s.editorProfile.key === 'learningPath');
   // isFormValid: true while the current node's form hasn't been touched or is valid.
   const [isFormValid, setIsFormValid] = useState(true);
   const selectedNodeId = useTreeStore((s) => s.selectedNodeId);
@@ -74,27 +87,61 @@ export const SplitBuilderShell: React.FC<SplitBuilderShellProps> = ({
       setActiveDragItem(null);
       const item = event.active.data.current?.item as IContent | undefined;
       if (!item) return;
+      // Every course carries a skill tag under its OWN framework — with no
+      // Curriculum chosen yet, the path has nothing to check that tag
+      // against, and the course would just get pruned the moment one is set.
+      if (isLearningPath && !hasExplicitCurriculum(treeData[0], treeCache)) {
+        toast.error(lbl.learningPath.selectCurriculumFirstToast);
+        return;
+      }
       const over = event.over;
       const targetNodeId = (over?.id as string | undefined) ?? selectedNodeId ?? undefined;
+      // LP drops land on Levels within a path; collections drop on units within
+      // a course — same guards, profile-specific wording.
+      const dropOntoFolderError = isLearningPath
+        ? lbl.learningPath.dropOntoLevelError
+        : lbl.splitBuilderShell.dropOntoUnitError;
       if (!targetNodeId) {
-        toast.error(lbl.splitBuilderShell.dropOntoUnitError);
+        toast.error(dropOntoFolderError);
         return;
       }
       const rootId = treeData[0]?.id;
       const allowContentUnderRoot = false; // matches tree.store guard
       if (!allowContentUnderRoot && targetNodeId === rootId) {
-        toast.error(lbl.splitBuilderShell.dropOntoCourseError);
+        toast.error(isLearningPath
+          ? lbl.learningPath.dropOntoPathError
+          : lbl.splitBuilderShell.dropOntoCourseError);
+        return;
+      }
+      // A leaf (e.g. a linked course) can't receive children — the store would
+      // reject it; surface the "drop onto a unit/level" message, not "already added".
+      const targetNode = useTreeStore.getState().getNodeById(targetNodeId);
+      if (!targetNode?.isFolder) {
+        toast.error(dropOntoFolderError);
+        return;
+      }
+      // Dropping onto a filled pre/post slot: the store rejects it, but the
+      // author should hear "slot already has a course", not "already added".
+      if (isLearningPath && isAssessmentLevel(targetNode)) {
+        const preLevelId = treeData[0]?.children?.[0]?.id;
+        toast.error(targetNode.id === preLevelId
+          ? lbl.learningPath.priorSlotFilledToast
+          : lbl.learningPath.outcomeSlotFilledToast);
         return;
       }
       const added = addResource(item, targetNodeId);
       if (!added) {
-        toast.error(lbl.splitBuilderShell.alreadyInCollectionError.replace('{name}', item.name));
+        toast.error((isLearningPath
+          ? lbl.learningPath.itemAlreadyInPathToast
+          : lbl.splitBuilderShell.alreadyInCollectionError).replace('{name}', item.name));
         return;
       }
       onContentAdded?.(item, targetNodeId);
-      toast.success(lbl.splitBuilderShell.addedToUnitSuccess.replace('{name}', item.name));
+      toast.success((isLearningPath
+        ? lbl.learningPath.addedToLevelSuccess
+        : lbl.splitBuilderShell.addedToUnitSuccess).replace('{name}', item.name));
     },
-    [selectedNodeId, addResource, onContentAdded, lbl],
+    [selectedNodeId, addResource, treeData, treeCache, onContentAdded, lbl, isLearningPath],
   );
 
   const handleToolbarEvent = useCallback(
@@ -202,7 +249,11 @@ export const SplitBuilderShell: React.FC<SplitBuilderShellProps> = ({
             </button>
           )}
 
-          <main className={styles.editor} role="main" aria-label={lbl.splitBuilderShell.editorAriaLabel}>
+          <main
+            className={[styles.editor, isLearningPath ? styles.editorLp : ''].filter(Boolean).join(' ')}
+            role="main"
+            aria-label={lbl.splitBuilderShell.editorAriaLabel}
+          >
             <ContextualEditor editorMode={editorMode} onToolbarEvent={handleToolbarEvent} />
           </main>
 

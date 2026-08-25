@@ -33,7 +33,7 @@ export interface IContext {
   pdata: { id: string; ver: string; pid?: string };
   env: string;
   /** Current user profile — user.fullName auto-fills the author field.
-   *  When absent, the editor resolves it via /portal/user/v5/read. */
+   *  When absent, the editor resolves it via /action/user/v5/read. */
   user?: { fullName?: string };
   contentId?: string;
   identifier?: string;
@@ -76,6 +76,11 @@ export interface IConfig {
     size?: number;
     accepted?: string;
   };
+  /** When set, replaces every API call's leading /action|/api|/portal
+   *  segment (see src/api/client.ts's resolveApiUrl) with this host-specific
+   *  prefix, e.g. if the portal's own gateway proxies every backend service
+   *  under one path of its own instead. */
+  apiSlug?: string;
 }
 
 export interface IEditorConfig {

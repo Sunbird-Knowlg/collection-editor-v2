@@ -50,7 +50,7 @@ export async function readHierarchy(
   contentId: string,
 ): Promise<{ content: Record<string, unknown>; rootNode: INode }> {
   const response = await apiClient.get(
-    `/action/content/v3/hierarchy/${contentId}`,
+    `/action/collection/v1/hierarchy/${contentId}`,
     { params: { mode: 'edit' } },
   );
   const content = response.data?.result?.content as Record<string, unknown> | undefined;
@@ -88,7 +88,7 @@ export async function updateHierarchy(
   hierarchy: Record<string, unknown>,
   lastUpdatedBy?: string,
 ): Promise<{ identifiers?: Record<string, string> }> {
-  const response = await apiClient.patch('/action/content/v3/hierarchy/update', {
+  const response = await apiClient.patch('/action/collection/v1/hierarchy/update', {
     request: {
       data: {
         nodesModified,
@@ -105,7 +105,7 @@ export async function publishContent(
   contentId: string,
   lastPublishedBy = '',
 ): Promise<void> {
-  await apiClient.post(`/action/content/v3/publish/${contentId}`, {
+  await apiClient.post(`/action/collection/v1/publish/${contentId}`, {
     request: {
       content: {
         lastPublishedBy,
@@ -114,23 +114,50 @@ export async function publishContent(
   });
 }
 
+/**
+ * Reads a Course's own hierarchy — used by the Learning Path editor to detect
+ * assessment courses (Courses whose leaves are all QuML Question Sets, see
+ * src/utils/lpStructure.ts). No metadata marker exists for this today, so the
+ * pre/post assessment slot must read the course tree on selection.
+ */
+export async function readCourseHierarchy(
+  courseId: string,
+): Promise<Record<string, unknown>> {
+  const response = await apiClient.get(
+    `/action/course/v1/hierarchy/${courseId}`,
+    { params: { mode: 'edit' } },
+  );
+  // The course/v1/hierarchy endpoint nests the hierarchy under
+  // result.content (not result.course, despite the endpoint's name).
+  const course = response.data?.result?.content as Record<string, unknown> | undefined;
+  if (!course || !course['identifier']) {
+    const reason =
+      (response.data?.params?.errmsg as string) ||
+      (response.data?.params?.err as string) ||
+      (response.data?.responseCode as string) ||
+      `No course returned for "${courseId}"`;
+    throw new Error(`Unable to load course hierarchy: ${reason}`);
+  }
+  return course;
+}
+
 export async function readContent(
   contentId: string,
 ): Promise<Record<string, unknown>> {
   const response = await apiClient.get(
-    `/action/content/v3/read/${contentId}`,
+    `/action/collection/v1/read/${contentId}`,
   );
   return response.data?.result?.content as Record<string, unknown>;
 }
 
 export async function sendForReview(contentId: string): Promise<void> {
-  await apiClient.post(`/action/content/v3/review/${contentId}`, {
+  await apiClient.post(`/action/collection/v1/review/${contentId}`, {
     request: { content: {} },
   });
 }
 
 export async function rejectContent(contentId: string, comment: string): Promise<void> {
-  await apiClient.post(`/action/content/v3/reject/${contentId}`, {
+  await apiClient.post(`/action/collection/v1/reject/${contentId}`, {
     request: { content: { rejectComment: comment } },
   });
 }
