@@ -59,9 +59,11 @@ export async function compositeSearch(params: {
 
 export async function fetchContentDetails(
   contentId: string,
+  fields?: string[],
 ): Promise<IContent> {
+  const query = fields?.length ? `?fields=${fields.join(',')}` : '';
   const response = await apiClient.get(
-    `/action/content/v3/read/${contentId}`,
+    `/action/content/v3/read/${contentId}${query}`,
   );
   return response.data?.result?.content as IContent;
 }

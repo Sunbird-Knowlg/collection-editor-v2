@@ -12,6 +12,8 @@ export interface IContent {
   status?: string;
   visibility?: string;
   pkgVersion?: number;
+  /** ECML content's body; returned only when the read asks for it via `fields`. */
+  body?: unknown;
 }
 
 export interface ILibraryItem extends IContent {
@@ -51,6 +53,9 @@ export const LIBRARY_PRIMARY_CATEGORIES = [
   'Practice Question Set',
   'SCORM Content',
   'Teacher Resource',
+  // Dynamic Assess: pool-based assessments (ECML and QuestionSet) that each learner plays as their own draw.
+  'Dynamic Course Assessment',
+  'Dynamic QuestionSet',
 ] as const;
 
 export type LibraryPrimaryCategory = typeof LIBRARY_PRIMARY_CATEGORIES[number];
@@ -65,4 +70,6 @@ export const CT_FILTERS: ReadonlyArray<{ label: string; value: string }> = [
   { label: 'Practice Question Set', value: 'Practice Question Set' },
   { label: 'SCORM Content', value: 'SCORM Content' },
   { label: 'Teacher Resource', value: 'Teacher Resource' },
+  { label: 'Dynamic Course Assessment', value: 'Dynamic Course Assessment' },
+  { label: 'Dynamic QuestionSet', value: 'Dynamic QuestionSet' },
 ];

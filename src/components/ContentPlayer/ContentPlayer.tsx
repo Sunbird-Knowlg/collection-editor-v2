@@ -11,6 +11,7 @@ import { useLabels } from '../../hooks/useLabels';
 import styles from './ContentPlayer.module.scss';
 
 const QUESTIONSET_MIME = 'application/vnd.sunbird.questionset';
+const ECML_MIME = 'application/vnd.ekstep.ecml-archive';
 
 /**
  * Walks the tree from a question node up to the nearest ancestor QuestionSet —
@@ -130,7 +131,7 @@ function buildPlayerConfig(
       splash: { text: '', icon: '', bgImage: '', webLink: '' },
       sideMenu: { showDownload: true, showExit: false, showShare: true },
       apislug: '/action',
-      repos: ['/sunbird-plugins/renderer'],
+      repos: ['/content-plugins/renderer'],
       plugins: [
         { id: 'org.sunbird.iframeEvent', ver: 1.0, type: 'plugin' },
         { id: 'org.sunbird.player.endpage', ver: 1.1, type: 'plugin' },
@@ -332,6 +333,13 @@ function SunbirdContentPlayer({ node }: { node: INode }) {
     setPlayerType(resolvePlayerType(node.mimeType ?? ''));
 
     fetchContentDetails(node.identifier)
+      // The default read omits `body`, which the ECML renderer needs; fetch it separately.
+      .then(async (content) => {
+        const mime = (content.mimeType as string) ?? node.mimeType ?? '';
+        if (mime !== ECML_MIME || content.body) return content;
+        const withBody = await fetchContentDetails(node.identifier, ['body']).catch(() => undefined);
+        return withBody?.body ? { ...content, body: withBody.body } : content;
+      })
       .then((content) => {
         if (cancelled) return;
         const merged = { ...(node.metadata ?? {}), ...content } as Record<string, unknown>;
